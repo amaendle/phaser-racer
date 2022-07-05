@@ -1,0 +1,198 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="UTF-8" />
+        <title>hello phaser!</title>
+        <script src="//cdn.jsdelivr.net/phaser/2.5.0/phaser.min.js"></script>
+    </head>
+    <body>
+
+<script type="text/javascript">
+// This mini-game is a derivative from the following examples.
+// http://phaser.io/examples/v2/p2-physics/accelerate-to-object
+// http://phaser.io/examples/v2/p2-physics/impact-events
+// Author: jdoe090910@gmail.com
+// Date Created: 07/07/2015
+var game = new Phaser.Game(800, 600, Phaser.AUTO, 'phaser-example', { preload: preload, create: create, update: update, render: render });
+function preload() {
+    game.load.image('car', 'assets/sprites/carblu.png');
+}
+var player;
+var cursors;
+var groupOpponents;
+var GameState = 0; // Playing.
+var opponentCount = 8;
+var opponentsLeft = opponentCount;
+var allCars = [];
+// Speed Details.
+var playerRotationSpeed = 30;
+var playerThrust = 200;
+var opponentThrust = 25;
+var playerReverse = 100;
+var carMaxSpeed = 100;
+var opponentMaxSpeed = 100;
+function create() {
+    game.stage.backgroundColor = '#aaaaaa';
+    
+    game.physics.startSystem(Phaser.Physics.P2JS);
+    game.physics.p2.setImpactEvents(true);
+    game.physics.p2.restitution = 0.8;
+    var playerCollisionGroup = game.physics.p2.createCollisionGroup();
+    var opponentCollisionGroup = game.physics.p2.createCollisionGroup();
+    game.physics.p2.updateBoundsCollisionGroup();
+    groupOpponents = game.add.group();
+    groupOpponents.enableBody = true;
+    groupOpponents.physicsBodyType = Phaser.Physics.P2JS;
+    for (var i = 0; i < opponentCount; i++)
+    {
+        var opponent = groupOpponents.create(game.world.randomX, game.world.randomY, 'car');
+        opponent.body.setCircle(16);
+        opponent.tint = 0x444444 + (Math.random() * 0xBBBBBB);
+        opponent.body.setCollisionGroup(opponentCollisionGroup);
+        opponent.body.collides([opponentCollisionGroup, playerCollisionGroup], hitPlayerOrOpponent, this );
+        
+        allCars.push(opponent);
+        
+        opponent.smashTarget = -1; // No Player.
+        opponent.isAlive=true;
+    }
+    //  Create our player sprite
+    player = game.add.sprite(game.width/2, game.height/2, 'car');
+    game.physics.p2.enable(player, false);
+    player.body.setCircle(16);
+    
+    player.body.setCollisionGroup(playerCollisionGroup);
+    player.body.collides(opponentCollisionGroup, hitEnemy, this);
+    player.isAlive=true;
+    allCars.push(player);
+    
+    cursors = game.input.keyboard.createCursorKeys();
+    // AI Check Timer
+    aiChaseCheck = game.time.now;
+    OpponentsGetTarget();
+}
+function hitEnemy(body1, body2) {
+    body2.sprite.alpha -= 0.20;
+}
+function hitPlayerOrOpponent(body1, body2)
+{
+    body2.sprite.alpha -= 0.05;
+}
+function update() {
+    
+    groupOpponents.forEachAlive(function(opponent) {
+      if (opponent.smashTarget > -1)
+      {
+        accelerateToObject(opponent, allCars[opponent.smashTarget],opponentThrust);
+        constrainVelocity(opponent, opponentMaxSpeed);
+      }
+      // Remove any dead Opponents.
+      if (opponent.body.sprite.alpha <= 0.20) {
+        opponentsLeft--;
+        opponent.isAlive = false;
+        opponent.kill();
+        if (opponentsLeft == 0)
+            GameState = 2;
+      }
+    }, this);
+    // Check if Player is dead.
+    if (player.alpha <= 0.15) {
+        player.kill();
+        GameState = 1;
+    }
+    
+    // Player Movements.
+    if (cursors.left.isDown) {
+        player.body.rotateLeft(playerRotationSpeed);
+    }
+    else if (cursors.right.isDown) {
+        player.body.rotateRight(playerRotationSpeed);
+    }
+    else {
+        player.body.setZeroRotation();
+    }
+    if (cursors.up.isDown){
+        player.body.thrust(playerThrust);
+    }
+    else if (cursors.down.isDown){
+        player.body.reverse(playerReverse);
+    }
+    else
+    {
+        player.body.damping = 0.6;
+    }
+    constrainVelocity(player, carMaxSpeed);
+    
+    // AI Timer
+    if (game.time.now - aiChaseCheck > 1000) // 1 Seconds
+    {
+        randomOpponentGetTarget();
+        aiChaseCheck = game.time.now;
+    }
+}
+function OpponentsGetTarget()
+{
+    groupOpponents.forEachAlive(function(opponent) {        
+        destIndex = Math.floor(Math.random() * allCars.length);
+        while (opponent == allCars[destIndex])
+        {
+            destIndex = Math.floor(Math.random() * allCars.length);
+        }
+        opponent.smashTarget = destIndex;        
+    }, this);
+}
+function randomOpponentGetTarget()
+{
+    opponentIndex = 1 + Math.floor(Math.random() * (allCars.length-1))
+    if (allCars[opponentIndex].isAlive)
+    {
+        destIndex = Math.floor(Math.random() * allCars.length);
+        while (!allCars[destIndex].isAlive && allCars[opponentIndex] == allCars[destIndex])
+        {
+            destIndex = Math.floor(Math.random() * allCars.length);
+        }
+        allCars[opponentIndex].smashTarget = destIndex;
+    }
+}
+// http://phaser.io/examples/v2/p2-physics/accelerate-to-object
+function accelerateToObject(obj1, obj2, speed) {
+    if (typeof speed === 'undefined') { speed = 60; }
+    var angle = Math.atan2(obj2.y - obj1.y, obj2.x - obj1.x);
+    obj1.body.rotation = angle + game.math.degToRad(90);  // correct angle of angry opponents (depends on the sprite used)
+    obj1.body.force.x = Math.cos(angle) * speed;    // accelerateToObject 
+    obj1.body.force.y = Math.sin(angle) * speed;
+};
+// http://www.html5gamedevs.com/topic/9835-is-there-a-proper-way-to-limit-the-speed-of-a-p2-body/
+function constrainVelocity(sprite, maxVelocity) {
+  var body = sprite.body
+  var angle, currVelocitySqr, vx, vy;
+  vx = body.data.velocity[0];
+  vy = body.data.velocity[1];
+  
+  currVelocitySqr = vx * vx + vy * vy;
+  if (currVelocitySqr > maxVelocity * maxVelocity) {
+    angle = Math.atan2(vy, vx);
+    vx = Math.cos(angle) * maxVelocity;
+    vy = Math.sin(angle) * maxVelocity;
+    body.data.velocity[0] = vx;
+    body.data.velocity[1] = vy;
+    console.log('limited speed to: '+maxVelocity);
+  }
+};
+function render() {
+    switch(GameState)
+    {
+        case 0: // Playing
+            game.debug.text('Collide with the Smash Em Derby! GO!', 32, 32);
+            break;
+        case 1: // Game Over.
+            game.debug.text('GAME OVER, Better luck next time!', 32, 32);
+            break;
+        case 2: // Game Win.
+            game.debug.text('CONGRATULATIONS YOU WINNNN!11!!11!', 32, 32);
+            break;
+    }
+}
+</script>
+    </body>
+</html>
